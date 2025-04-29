@@ -35,7 +35,6 @@ def thread_ipv6(_PORT:int):
                 mensagem += clientsocket.recv(1).decode('utf-8')
             print(f"=> \"{mensagem}\"")
             clientsocket.send(mensagem.encode())
-            # clientsocket.close()
         except TimeoutError:
             pass
         except KeyboardInterrupt:
@@ -64,7 +63,6 @@ def thread_ipv4(_PORT:int):
                 mensagem += clientsocket.recv(1).decode('utf-8')
             print(f"=> \"{mensagem}\"")
             clientsocket.send(mensagem.encode())
-            # clientsocket.close()
         except TimeoutError:
             pass
         except KeyboardInterrupt:
@@ -111,18 +109,10 @@ def host_connect(ip:str, port:int):
                     mensagem += chunk.decode("utf-8")
                     if mensagem[-2:] == '\n\n':
                         terminated = True
-                    # chunks.append(chunk)
             print(mensagem)
         except TimeoutError:
             print("Timeout ocorrido.")
     return
-    ipnum = socket.gethostbyname(ip)
-    s:socket.socket
-    # if ip.count(':') > 0:
-    #     s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-    # elif ip.count('.') == 4:
-    # s.connect(("www.python.org", 80))
-    pass
 
 if __name__ == "__main__":
     if args.server:

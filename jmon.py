@@ -30,13 +30,11 @@ def thread_ipv6(_PORT:int):
         try:
             (clientsocket, address) = s.accept()
             print(f"Conexão {address}: ->")
-            mensagem = [b'']
-            msg_sz = 0
-            while b'\n' not in mensagem[-1] and msg_sz < 10_000:
-                mensagem.append(clientsocket.recv(2000))
-                msg_sz += len(mensagem[-1])
-            print(f"=> {(b''.join(mensagem)).decode("utf-8")}")
-            clientsocket.send(b''.join(mensagem))
+            mensagem = ""
+            while '\n\n' != mensagem[-2:]:
+                mensagem += clientsocket.recv(1).decode('utf-8')
+            print(f"=> \"{mensagem}\"")
+            clientsocket.send(mensagem.encode())
             # clientsocket.close()
         except TimeoutError:
             pass
@@ -61,13 +59,11 @@ def thread_ipv4(_PORT:int):
         try:
             (clientsocket, address) = s.accept()
             print(f"Conexão {address}: ->")
-            mensagem = [b'']
-            msg_sz = 0
-            while b'\n' not in mensagem[-1] and msg_sz < 10_000:
-                mensagem.append(clientsocket.recv(2000))
-                msg_sz += len(mensagem[-1])
-            print(f"=> {(b''.join(mensagem)).decode("utf-8")}")
-            clientsocket.send(b''.join(mensagem))
+            mensagem = ""
+            while '\n\n' != mensagem[-2:]:
+                mensagem += clientsocket.recv(1).decode('utf-8')
+            print(f"=> \"{mensagem}\"")
+            clientsocket.send(mensagem.encode())
             # clientsocket.close()
         except TimeoutError:
             pass
@@ -82,7 +78,6 @@ def signal_handler(signum, frame):
     
     
 def host_connect(ip:str, port:int):
-    s = None
     sockt_info = None
     try:
         sockinfov6 = socket.getaddrinfo(ip, port, socket.AF_INET6)
@@ -95,28 +90,29 @@ def host_connect(ip:str, port:int):
             sockt_info = sockinfov4
         except Exception as e:
             print("Incapaz de realizar conexão.")
+            print(ev6)
             print(e)
             return
     if sockt_info:
         s = socket.socket(sockt_info[0][0], sockt_info[0][1])
         s.settimeout(2)
         s.connect(sockt_info[0][-1])
-        s.send(b"Oi\n")
-        chunks = []
-        bytes_recd = 0
+        s.send(b"Greetings from me\n\n")
+        # chunks = []
+        mensagem = ""
         terminated = False
         try:
-            while bytes_recd < 256 and not terminated:
+            while not terminated:
                 chunk = s.recv(1)
                 if chunk == b'':
                     terminated = True
                     raise RuntimeError("socket connection broken")
-                elif chunk == b'\n':
-                    terminated = True
-                chunks.append(chunk)
-                bytes_recd = bytes_recd + len(chunk)
-            print(b''.join(chunks))
-            s.close()
+                else:
+                    mensagem += chunk.decode("utf-8")
+                    if mensagem[-2:] == '\n\n':
+                        terminated = True
+                    # chunks.append(chunk)
+            print(mensagem)
         except TimeoutError:
             print("Timeout ocorrido.")
     return

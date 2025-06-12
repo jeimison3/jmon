@@ -3,6 +3,9 @@ import yaml
 import socket
 from typing import Any, ClassVar, Literal, SupportsIndex, TypeVar, List
 
+import subprocess
+import sys
+
 
 def resolveIP(host):
     ''' Resolução de Host -> IPv4 + IPv6 ou diretamente '''
@@ -59,16 +62,105 @@ class ConsultaTCP(Consulta):
             else:
                 return False
         except Exception as e:
-            print(f"ERRO (TCP {self.host}:{self.port}) =>",e)
+            print(f"ERRO (TCP <{self.host}:{self.port}>) =>",e)
             return False
+        
+class ConsultaICMP(Consulta):
+    def __init__(self, host:str, tentativas:int=2, timeout_sec:int=3):
+        self.host = host
+        self.timeout_sec = timeout_sec
+        self.tentativas = tentativas
+    def name(self):
+        return ["ICMP",self.host]
+    
+    def run(self):
+        try:
+            # Existe a hipótese de não conseguir resolver. Falha no acesso ao serviço DNS por exemplo?
+            self.ipv4, self.ipv6 = resolveIP(self.host)
+            
+            if self.ipv6:
+                if 'win' in sys.platform:
+                    # processo = subprocess.Popen(['ping', self.ipv6], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                    # saida, erro = processo.communicate()
+                    # print(saida, erro)
+                    pass
+                else: # UNIX: Linux/Mac
+                    processo = subprocess.run(['ping', '-c', str(self.tentativas), '-W', str(self.timeout_sec), self.ipv6], capture_output=True)
+                    # print('RETORNO',processo.returncode)
+                    # print('STDOUT>\n',processo.stdout.decode(),'\n=====================')
+                    # print('STDERR>\n',processo.stderr.decode(),'\n=====================')
+                return processo.returncode == 0
+            elif self.ipv4:
+                if 'win' in sys.platform:
+                    # processo = subprocess.Popen(['ping', self.ipv4], stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+                    # saida, erro = processo.communicate()
+                    # print(saida, erro)
+                    pass
+                else: # UNIX: Linux/Mac
+                    processo = subprocess.run(['ping', '-c', str(self.tentativas), '-W', str(self.timeout_sec), self.ipv4], capture_output=True)
+                    # print('RETORNO',processo.returncode)
+                    # print('STDOUT>\n',processo.stdout.decode(),'\n=====================')
+                    # print('STDERR>\n',processo.stderr.decode(),'\n=====================')
+                return processo.returncode == 0
+            else:
+                return False
+        except Exception as e:
+            print(f"ERRO (ICMP <{self.host}>) =>",e)
+            return False
+        
+class ConsultaNetstat(Consulta):
+    def __init__(self, proto:str, port:int):
+        self.proto = proto
+        self.port = port
+    def name(self):
+        return ["NETSTAT",self.proto,str(self.port)]
+    
+    def run(self):
+        try:
+            if 'win' in sys.platform:
+                return False
+            else: # UNIX: Linux/Mac
+                processo = subprocess.run(['netstat', '-tupln'], capture_output=True)
+                # print('STDOUT>\n',processo.stdout.decode(),'\n=====================')
+                linhas = processo.stdout.decode().split('\n')
+                registros = []
+                while len(linhas)>0:
+                    linha = linhas.pop()
+                    if 'tcp' in linha or 'udp' in linha:
+                        parametros = linha.split(' ')
+                        while parametros.count('') > 0:
+                            parametros.remove('')
+                        registros.append(parametros)
+                for _valores in registros:
+                    proto, ipport = _valores[0], _valores[3]
+                    portInt = int(str(ipport).split(':')[-1])
+                    if proto == self.proto and portInt == self.port:
+                        return True
+        except Exception as e:
+            print(f"ERRO (NETSTAT <{self.proto} {self.port}>) =>",e)
+            return False
+        return False
 
 
 def main(configs:any):
     servidor = configs['server']
     consultas : List[Consulta] = []
     for servico in configs['service']:
+        # TCP
         if ('http' in servico) and ('port' in servico):
             consultas.append(ConsultaTCP(servico['http'], int(servico['port'])))
+        # Ping
+        elif ('ping' in servico):
+            consultas.append(ConsultaICMP(servico['ping']))
+        # Netstat
+        elif ('local' in servico) and ('tcp' in servico):
+            consultas.append(ConsultaNetstat('tcp', int(servico['tcp'])))
+        elif ('local' in servico) and ('tcp6' in servico):
+            consultas.append(ConsultaNetstat('tcp6', int(servico['tcp6'])))
+        elif ('local' in servico) and ('udp' in servico):
+            consultas.append(ConsultaNetstat('udp', int(servico['udp'])))
+        elif ('local' in servico) and ('udp6' in servico):
+            consultas.append(ConsultaNetstat('udp6', int(servico['udp6'])))
     
     for consulta in consultas:
         nome = [servidor['host']]

@@ -1,10 +1,13 @@
 # pip install pyyaml
 import yaml
 import socket
-from typing import Any, ClassVar, Literal, SupportsIndex, TypeVar, List
+from typing import List
 
 import subprocess
 import sys
+
+import amqp
+import time
 
 
 def resolveIP(host):
@@ -144,34 +147,67 @@ class ConsultaNetstat(Consulta):
 
 def main(configs:any):
     servidor = configs['server']
-    consultas : List[Consulta] = []
-    for servico in configs['service']:
-        # TCP
-        if ('http' in servico) and ('port' in servico):
-            consultas.append(ConsultaTCP(servico['http'], int(servico['port'])))
-        # Ping
-        elif ('ping' in servico):
-            consultas.append(ConsultaICMP(servico['ping']))
-        # Netstat
-        elif ('local' in servico) and ('tcp' in servico):
-            consultas.append(ConsultaNetstat('tcp', int(servico['tcp'])))
-        elif ('local' in servico) and ('tcp6' in servico):
-            consultas.append(ConsultaNetstat('tcp6', int(servico['tcp6'])))
-        elif ('local' in servico) and ('udp' in servico):
-            consultas.append(ConsultaNetstat('udp', int(servico['udp'])))
-        elif ('local' in servico) and ('udp6' in servico):
-            consultas.append(ConsultaNetstat('udp6', int(servico['udp6'])))
     
-    for consulta in consultas:
-        nome = [servidor['host']]
-        nome.extend(consulta.name())
-        nome = "|".join(nome)
-        print(nome,'=>',"Sucesso" if consulta.run() else "Falha")
+    apelido = configs['alias']
+    with amqp.Connection(servidor['host'], userid=servidor['userid'], password=servidor['password']) as c:
+        canal = c.channel()
+        consultas : List[Consulta] = []
+        for servico in configs['service']:
+            # TCP
+            if ('http' in servico) and ('port' in servico):
+                consultas.append(ConsultaTCP(servico['http'], int(servico['port'])))
+            # Ping
+            elif ('ping' in servico):
+                consultas.append(ConsultaICMP(servico['ping']))
+            # Netstat
+            elif ('local' in servico) and ('tcp' in servico):
+                consultas.append(ConsultaNetstat('tcp', int(servico['tcp'])))
+            elif ('local' in servico) and ('tcp6' in servico):
+                consultas.append(ConsultaNetstat('tcp6', int(servico['tcp6'])))
+            elif ('local' in servico) and ('udp' in servico):
+                consultas.append(ConsultaNetstat('udp', int(servico['udp'])))
+            elif ('local' in servico) and ('udp6' in servico):
+                consultas.append(ConsultaNetstat('udp6', int(servico['udp6'])))
+            else:
+                continue
+            nomeQueue = f"/{apelido}/{'/'.join(consultas[-1].name())}"
+            nome, num_mensagens, consumidores = canal.queue_declare(queue=nomeQueue, exclusive=True)
+            print(f"Instanciada fila {nome} com {num_mensagens} mensagem(s) e {consumidores} consumidor(es)")
+            # canal.queue_bind()
+    
+    
+    
+        while True:
+            c.send_heartbeat()
+            if canal is not None:
+                while not canal.is_open:
+                    canal.open()
+                    time.sleep(0.5)
+                for consulta in consultas:
+                    nomeQueue = f"/{apelido}/{'/'.join(consulta.name())}"
+                    resultado = 1 if consulta.run() else 0
+                    print(nomeQueue,'=>',"Sucesso" if resultado else "Falha")
+                    canal.basic_publish(amqp.Message(str(resultado), content_type='text/plain', application_headers={'status': resultado}), routing_key=nomeQueue)#, routing_key=apelido)
+            time.sleep(5)
 
 
 if __name__ == "__main__":
     with open('env.yaml', 'r') as file:
         try:
-            main(yaml.safe_load(file))
+            configs = yaml.safe_load(file)
         except yaml.YAMLError as exc:
             print(exc)
+            exit(0)
+            
+        while True:
+            try:
+                main(configs)
+            except amqp.ConnectionForced as e:
+                print("FIM DE CONEXÃO FORÇADO:",e.message)
+                if e.message == 'CONNECTION_FORCED - exit':
+                    break
+                else:
+                    print('Reiniciando.')
+            except Exception as e:
+                print("ERRO:",e)
+    

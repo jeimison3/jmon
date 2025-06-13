@@ -171,7 +171,7 @@ def main(configs:any):
             else:
                 continue
             nomeQueue = f"/{apelido}/{'/'.join(consultas[-1].name())}"
-            nome, num_mensagens, consumidores = canal.queue_declare(queue=nomeQueue, exclusive=True)
+            nome, num_mensagens, consumidores = canal.queue_declare(queue=nomeQueue, durable=True, exclusive=False, auto_delete=False)
             print(f"Instanciada fila {nome} com {num_mensagens} mensagem(s) e {consumidores} consumidor(es)")
             # canal.queue_bind()
     

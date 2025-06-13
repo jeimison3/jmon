@@ -78,7 +78,7 @@ class ConsultaTCP(Consulta):
                 return True
             elif self.ipv4:
                 clientsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                clientsocket.connect((self.ipv6, self.port))
+                clientsocket.connect((self.ipv4, self.port))
                 clientsocket.close()
                 return True
             else:
@@ -374,8 +374,26 @@ if __name__ == "__main__":
             except yaml.YAMLError as exc:
                 print(exc)
                 exit(0)
-        print("Iniciando servidor...")
+        print("[Servidor] Iniciando...")
         signal.signal(signal.SIGINT, signal_handler)
+        
+        amqp_server_host = configs['amqp']['host']
+        amqp_server = ConsultaTCP(amqp_server_host, 5672)
+        amqp_server_ping = ConsultaICMP(amqp_server_host, tentativas=1)
+        while not exit_event.is_set():
+            if not amqp_server.run():
+                print(f"[Servidor][ERRO] Broker não está acessível no host {amqp_server_host}.")
+                if amqp_server_ping.run():
+                    print("[Servidor][INFO] O host parece estar acessível. Verifique o estado do serviço.")
+                else:
+                    print("[Servidor][ERRO] O host parece estar inacessível. Verifique o estado da máquina.")
+                print("[Servidor] Tentando novamente em 5 segundos.")
+                time.sleep(5)
+            else:
+                print("[Servidor] Serviço no Broker está ativo.")
+                break
+        if exit_event.is_set():
+            exit(0)
         
         for subdir, dirs, files in os.walk('profiles/'):
             for arquivo in files:

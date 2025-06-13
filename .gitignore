@@ -175,3 +175,6 @@ cython_debug/
 
 
 env.yaml
+env.ser.yaml
+
+profiles/*

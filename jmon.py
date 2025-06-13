@@ -13,6 +13,8 @@ import sys
 import amqp
 import time
 import yaml.serializer
+import requests
+from datetime import datetime, timezone, timedelta
 
 exit_event = Event()
 
@@ -362,7 +364,51 @@ def thread_server(configs):
     ## Thread consumidor AMQP/MQTT
     '''
     global exit_event, server_profiles
-    pass
+    print('Iniciando conexão com Broker...')
+    try:
+        r = requests.get('http://%s:%d/api/queues/%s' % (configs['amqp']['host'], 15672, ''), auth=(configs['amqp']['userid'], configs['amqp']['password']))
+        if r.status_code == 200:
+            if r.headers['content-type'] == 'application/json':
+                # print(r.text)
+                queues = r.json()
+            else:
+                print(f"[Servidor][Erro][Broker][WEB]: Conexão mal sucedida. Tipo de conteúdo: {r.headers['content-type']}")
+                return
+        else:
+            print(f"[Servidor][Erro][Broker][WEB]: Conexão mal sucedida. Código de status: {r.status_code}")
+            return
+        
+        filas_ativas = []
+        for fila in queues:
+            filas_ativas.append(fila['name'])
+            pendentes = fila['messages']
+            if pendentes > 0:
+                if 'idle_since' in fila:
+                    last_changes = datetime.fromisoformat(fila['idle_since']).astimezone(timezone(timedelta(hours=-3)))
+                    print(f"[{fila['name']}] {fila['messages']} mensagens em fila, desde {last_changes}")
+                else:
+                    print(f"[{fila['name']}] {fila['messages']} mensagens em fila")
+
+        with amqp.Connection(configs['amqp']['host'], userid=configs['amqp']['userid'], password=configs['amqp']['password']) as c:
+            canal = c.channel()
+            
+            def on_message(message:amqp.basic_message.Message):
+                ch = message.channel
+                key = message.delivery_info['routing_key']
+                print(key,'=>',message.body)
+                # print('Received message (delivery tag: {}): {}'.format(message.delivery_tag, message.body))
+                ch.basic_ack(message.delivery_tag)
+            
+            for fila in filas_ativas:
+                canal.basic_consume(queue=fila, callback=on_message)
+            
+            while not exit_event.is_set():
+                try:
+                    c.drain_events(timeout=2)
+                except TimeoutError as e:
+                    pass
+    except amqp.exceptions.AMQPError as e:
+        print(f"[Servidor][Erro][Broker][Conexão]: {e}")
 
 
 if __name__ == "__main__":

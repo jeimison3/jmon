@@ -165,14 +165,12 @@ class ConsultaNetstat(Consulta):
 
 
 def main(configs, configs_profile):
-    print("CONFIGS",configs)
-    print("CONFIGS_PROFILE",configs_profile)
-    time.sleep(20)
-    return
-    servidor = configs['server']
+    global exit_event
+    # print("CONFIGS",configs)
+    # print("CONFIGS_PROFILE",configs_profile)
     
     apelido = configs['alias']
-    with amqp.Connection(servidor['host'], userid=servidor['userid'], password=servidor['password']) as c:
+    with amqp.Connection(configs_profile['amqp']['host'], userid=configs['amqp']['userid'], password=configs['amqp']['password']) as c:
         canal = c.channel()
         consultas : List[Consulta] = []
         for servico in configs_profile['service']:
@@ -200,30 +198,32 @@ def main(configs, configs_profile):
     
     
     
-        while True:
+        while not exit_event.is_set():
             c.send_heartbeat()
             if canal is not None:
-                while not canal.is_open:
-                    canal.open()
-                    time.sleep(0.5)
                 for consulta in consultas:
                     nomeQueue = f"/{apelido}/{'/'.join(consulta.name())}"
                     resultado = 1 if consulta.run() else 0
-                    print(nomeQueue,'=>',"Sucesso" if resultado else "Falha")
-                    canal.basic_publish(amqp.Message(str(resultado), content_type='text/plain', application_headers={'status': resultado}), routing_key=nomeQueue)#, routing_key=apelido)
-            time.sleep(5)
+                    # print(nomeQueue,'=>',"Sucesso" if resultado else "Falha")
+                    canal.basic_publish(amqp.Message(str(resultado), content_type='text/plain', application_headers={'status': resultado}), routing_key=nomeQueue)
+            print('.',end='', flush=True)
+            for _ in range(5):
+                time.sleep(1)
+                if exit_event.is_set():
+                    break
 
 def host_connect(ip:str, port:int, configs):
-    while True:
+    global exit_event
+    while not exit_event.is_set():
         sockt_info = None
         try:
             sockinfov6 = socket.getaddrinfo(ip, port, socket.AF_INET6)
-            print(sockinfov6[0][-1])
+            # print(sockinfov6[0][-1])
             sockt_info = sockinfov6
         except Exception as ev6:
             try:
                 sockinfov4 = socket.getaddrinfo(ip, port, socket.AF_INET)
-                print(sockinfov4[0][-1])
+                # print(sockinfov4[0][-1])
                 sockt_info = sockinfov4
             except Exception as e:
                 print("Incapaz de realizar conexão.")
@@ -233,8 +233,9 @@ def host_connect(ip:str, port:int, configs):
         if sockt_info:
             s = socket.socket(sockt_info[0][0], sockt_info[0][1])
             s.settimeout(2)
+            print(sockt_info[0][-1])
             s.connect(sockt_info[0][-1])
-            s.send(f"{configs['alias']}\n".encode('utf-8'))
+            s.sendall(f"{configs['alias']}\n".encode('utf-8'))
             configs_str = ""
             try:
                 while True:
@@ -242,19 +243,17 @@ def host_connect(ip:str, port:int, configs):
                     if byte == b'\0':
                         break
                     configs_str += byte.decode("utf-8")
-                print(configs_str)
+                # print(configs_str)
                 try:
                     profile_configs = yaml.safe_load(configs_str)
-                    s.send(b"OK\n")
+                    s.sendall(b"OK\n")
                 except yaml.YAMLError as exc:
                     print(f"ERRO YAML:",exc)
-                    s.send(b"ERR:YAML\n")
+                    s.sendall(b"ERR:YAML\n")
                 s.close()
-                while True:
+                while not exit_event.is_set():
                     try:
                         main(configs, profile_configs)
-                        # time.sleep(10)
-                        # break
                     except amqp.ConnectionForced as e:
                         print("FIM DE CONEXÃO FORÇADO:",e.message)
                         if e.message == 'CONNECTION_FORCED - exit':
@@ -285,13 +284,13 @@ def thread_server_ipv6(_PORT:int):
             break
         try:
             (clientsocket, address) = s.accept()
-            print(f"Conexão {address}: ->")
+            print(f"{address} : Nova conexão")
             alias = ""
             lastChar = clientsocket.recv(1).decode('utf-8')
             while lastChar != '\n':
                 alias += lastChar
                 lastChar = clientsocket.recv(1).decode('utf-8')
-            print(f"Autenticando ALIAS {alias}")
+            print(f"{address} : Autenticando ALIAS {alias}")
             if alias in server_profiles:
                 if address[0] == server_profiles[alias]['client']['host']:
                     clientsocket.send(yaml.dump(server_profiles[alias]).encode())
@@ -301,9 +300,9 @@ def thread_server_ipv6(_PORT:int):
                     while lastChar != '\n':
                         status += lastChar
                         lastChar = clientsocket.recv(1).decode('utf-8')
-                    print(f"TERMINATED: {status}")
+                    print(f"{address} : TERMINADO=>{status}", end='\n\n')
                 else:
-                    print(f"Tentativa de conexão com ALIAS {alias} de origem inesperada ({address})")
+                    print(f"{address} ERRO : Tentativa de conexão do ALIAS {alias} de origem inesperada.")
                     s.close()
             else:
                 s.close()
@@ -330,13 +329,13 @@ def thread_server_ipv4(_PORT:int):
             break
         try:
             (clientsocket, address) = s.accept()
-            print(f"Conexão {address}: ->")
+            print(f"{address} : Nova conexão")
             alias = ""
             lastChar = clientsocket.recv(1).decode('utf-8')
             while lastChar != '\n':
                 alias += lastChar
                 lastChar = clientsocket.recv(1).decode('utf-8')
-            print(f"Autenticando ALIAS {alias}")
+            print(f"{address} : Autenticando ALIAS {alias}")
             if alias in server_profiles:
                 if address[0] == server_profiles[alias]['client']['host']:
                     clientsocket.send(yaml.dump(server_profiles[alias]).encode())
@@ -346,9 +345,9 @@ def thread_server_ipv4(_PORT:int):
                     while lastChar != '\n':
                         status += lastChar
                         lastChar = clientsocket.recv(1).decode('utf-8')
-                    print(f"TERMINATED: {status}")
+                    print(f"{address} : TERMINADO=>{status}")
                 else:
-                    print(f"Tentativa de conexão com ALIAS {alias} de origem inesperada ({address})")
+                    print(f"{address} ERRO : Tentativa de conexão do ALIAS {alias} de origem inesperada.")
                     s.close()
             else:
                 s.close()
@@ -358,16 +357,23 @@ def thread_server_ipv4(_PORT:int):
             return
 
 
+def thread_server(configs):
+    '''
+    ## Thread consumidor AMQP/MQTT
+    '''
+    global exit_event, server_profiles
+    pass
+
+
 if __name__ == "__main__":
-    with open('env.yaml', 'r') as file:
-        try:
-            configs = yaml.safe_load(file)
-        except yaml.YAMLError as exc:
-            print(exc)
-            exit(0)
-    
     
     if args.server:
+        with open('env.ser.yaml', 'r') as file:
+            try:
+                configs = yaml.safe_load(file)
+            except yaml.YAMLError as exc:
+                print(exc)
+                exit(0)
         print("Iniciando servidor...")
         signal.signal(signal.SIGINT, signal_handler)
         
@@ -378,14 +384,32 @@ if __name__ == "__main__":
                     with open(f'{subdir}{arquivo}', 'r') as file:
                         try:
                             server_profiles[alias] = yaml.safe_load(file)
+                            # Parâmetros de ambiente do servidor adicionais
+                            server_profiles[alias]['amqp'] = configs['amqp']
+                            
                             print(f"- Carregado ALIAS {alias} [IP {server_profiles[alias]['client']['host']}]")
                         except yaml.YAMLError as exc:
                             print(f"ERRO EM PROFILE {arquivo}:")
                             print(exc)
         tipv6 = Thread(target=thread_server_ipv6, args=[int(configs['server']['port'])])
         tipv4 = Thread(target=thread_server_ipv4, args=[int(configs['server']['port'])])
+        tconsum = Thread(target=thread_server, args=[configs])
         tipv6.start()
         tipv4.start()
+        tconsum.start()
+        
     else:
-        host_connect(configs['server']['host'], int(configs['server']['port']), configs=configs)
+        with open('env.yaml', 'r') as file:
+            try:
+                configs = yaml.safe_load(file)
+            except yaml.YAMLError as exc:
+                print(exc)
+                exit(0)
+        signal.signal(signal.SIGINT, signal_handler)
+        while not exit_event.is_set():
+            try:
+                host_connect(configs['server']['host'], int(configs['server']['port']), configs=configs)
+            except ConnectionRefusedError as e:
+                print("ERRO: Servidor offline.")
+                time.sleep(5)
     

@@ -6,7 +6,12 @@ A simple tool for status management of various servers, services, endpoints, con
 | TODO   |  WIP   | Done   |
 | ------ | ------ | ------ |
 | MySQL  | Ping   | TCP    |
-|        | HTTP   | TCP6   |
+| DNS    | HTTP   | TCP6   |
+| File   |        |        |
+
+### Features:
+- TODO: Specify bad signals.
+- TODO: Watch file updates, "grep" or "regex".
 
 ## Files and structure
 - env.yaml: Client-side JMON settings. `Template: env.client.yaml`

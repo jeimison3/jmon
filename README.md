@@ -1,5 +1,6 @@
 # JMON
-A simple tool for status management of various servers, services, endpoints, connections, logs and more.
+A simple tool for managing the status of multiple servers, services, endpoints, connections, logs and more.
+Using a AMQP broker (RabbitMQ) and a simple TCP communication.
 
 
 ## Progress

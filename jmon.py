@@ -24,6 +24,9 @@ args = parser.parse_args()
 
 server_profiles = {}
 
+def get_current_timestamp() -> float:
+    return time.time()
+
 
 def signal_handler(signum, frame):
     print("Terminando...")
@@ -176,6 +179,8 @@ def main(configs, configs_profile):
     global exit_event
     # print("CONFIGS",configs)
     # print("CONFIGS_PROFILE",configs_profile)
+    # configs_profile["server_time"] de BIAS
+    remote_offset_time = float(configs_profile["server_time"])-get_current_timestamp()
     
     apelido = configs['alias']
     with amqp.Connection(configs_profile['amqp']['host'], userid=configs['amqp']['userid'], password=configs['amqp']['password']) as c:
@@ -214,7 +219,11 @@ def main(configs, configs_profile):
                     nomeQueue = "/".join(["", apelido, consulta.name()])
                     resultado = 1 if consulta.run() else 0
                     # print(nomeQueue,'=>',"Sucesso" if resultado else "Falha")
-                    canal.basic_publish(amqp.Message(str(resultado), content_type='text/plain', application_headers={'status': resultado}), routing_key=nomeQueue)
+                    canal.basic_publish(amqp.Message(
+                        str(resultado),
+                        application_headers={'return': resultado},
+                        timestamp=int((remote_offset_time+get_current_timestamp())*1000),
+                    ), routing_key=nomeQueue)
             print('.',end='', flush=True)
             for _ in range(5):
                 time.sleep(1)
@@ -302,6 +311,7 @@ def thread_server_ipv6(_PORT:int):
             print(f"{address} : Autenticando ALIAS {alias}")
             if alias in server_profiles:
                 if address[0] == server_profiles[alias]['client']['host']:
+                    server_profiles[alias]['server_time'] = get_current_timestamp()
                     clientsocket.send(yaml.dump(server_profiles[alias]).encode())
                     clientsocket.send(b'\0')
                     status = ""
@@ -347,6 +357,7 @@ def thread_server_ipv4(_PORT:int):
             print(f"{address} : Autenticando ALIAS {alias}")
             if alias in server_profiles:
                 if address[0] == server_profiles[alias]['client']['host']:
+                    server_profiles[alias]['server_time'] = get_current_timestamp()
                     clientsocket.send(yaml.dump(server_profiles[alias]).encode())
                     clientsocket.send(b'\0')
                     status = ""
@@ -412,11 +423,17 @@ def thread_server(configs):
             canal = c.channel()
             
             def on_message(message:amqp.basic_message.Message):
-                ch = message.channel
-                key = message.delivery_info['routing_key']
-                print(key,'=>',message.body)
-                # print('Received message (delivery tag: {}): {}'.format(message.delivery_tag, message.body))
-                ch.basic_ack(message.delivery_tag)
+                try:
+                    ch = message.channel
+                    key = message.delivery_info['routing_key']
+                    _return = message.properties['application_headers']['return']
+                    _body = message.body
+                    _timestamp = message.properties['timestamp']
+                    _offset_stamp = int(get_current_timestamp()*1000) - _timestamp
+                    print(f"[{_offset_stamp} ms] {key} => {_return}")
+                    ch.basic_ack(message.delivery_tag)
+                except Exception as e:
+                    pass
             
             for fila in filas_ativas:
                 canal.queue_declare(queue=fila, durable=True, auto_delete=False)

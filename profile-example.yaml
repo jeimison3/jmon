@@ -4,7 +4,7 @@ client:
 
 service:
 
-  # Local service, verified over: netstat -tuplen
+  # Local service, verified with: netstat -tuplen
   - local:
     tcp: 80
   

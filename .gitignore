@@ -178,3 +178,4 @@ env.yaml
 env.ser.yaml
 
 profiles/*
+!profiles/example-alias.yaml

@@ -49,11 +49,13 @@ def resolveIP(host):
 
 class Consulta:
     ''' Estrutura básica de uma Consulta. '''
+    topic : str = ""
     
-    def __init__(self):
+    def __init__(self, topic:str):
+        self.topic = topic
         pass
     
-    def name(self) -> list[str]:
+    def name(self) -> str:
         pass
     
     def run(self) -> bool:
@@ -61,12 +63,13 @@ class Consulta:
         pass
 
 class ConsultaTCP(Consulta):
-    def __init__(self, host:str, port:int):
+    def __init__(self, topic:str, host:str, port:int):
+        self.topic = topic
         self.host = host
         self.port = port
         
     def name(self):
-        return ["TCP",self.host,str(self.port)]
+        return self.topic
     
     def run(self):
         try:
@@ -90,12 +93,13 @@ class ConsultaTCP(Consulta):
             return False
         
 class ConsultaICMP(Consulta):
-    def __init__(self, host:str, tentativas:int=2, timeout_sec:int=3):
+    def __init__(self, topic:str, host:str, tentativas:int=2, timeout_sec:int=3):
+        self.topic = topic
         self.host = host
         self.timeout_sec = timeout_sec
         self.tentativas = tentativas
     def name(self):
-        return ["ICMP",self.host]
+        return self.topic
     
     def run(self):
         try:
@@ -133,11 +137,13 @@ class ConsultaICMP(Consulta):
             return False
         
 class ConsultaNetstat(Consulta):
-    def __init__(self, proto:str, port:int):
+    def __init__(self, topic:str, proto:str, port:int):
+        self.topic = topic
         self.proto = proto
         self.port = port
+
     def name(self):
-        return ["NETSTAT",self.proto,str(self.port)]
+        return self.topic
     
     def run(self):
         try:
@@ -176,24 +182,25 @@ def main(configs, configs_profile):
         canal = c.channel()
         consultas : List[Consulta] = []
         for servico in configs_profile['service']:
+            topic = servico['topic']
             # TCP
             if ('http' in servico) and ('port' in servico):
-                consultas.append(ConsultaTCP(servico['http'], int(servico['port'])))
+                consultas.append(ConsultaTCP(topic, servico['http'], int(servico['port'])))
             # Ping
             elif ('ping' in servico):
-                consultas.append(ConsultaICMP(servico['ping']))
+                consultas.append(ConsultaICMP(topic, servico['ping']))
             # Netstat
             elif ('local' in servico) and ('tcp' in servico):
-                consultas.append(ConsultaNetstat('tcp', int(servico['tcp'])))
+                consultas.append(ConsultaNetstat(topic, 'tcp', int(servico['tcp'])))
             elif ('local' in servico) and ('tcp6' in servico):
-                consultas.append(ConsultaNetstat('tcp6', int(servico['tcp6'])))
+                consultas.append(ConsultaNetstat(topic, 'tcp6', int(servico['tcp6'])))
             elif ('local' in servico) and ('udp' in servico):
-                consultas.append(ConsultaNetstat('udp', int(servico['udp'])))
+                consultas.append(ConsultaNetstat(topic, 'udp', int(servico['udp'])))
             elif ('local' in servico) and ('udp6' in servico):
-                consultas.append(ConsultaNetstat('udp6', int(servico['udp6'])))
+                consultas.append(ConsultaNetstat(topic, 'udp6', int(servico['udp6'])))
             else:
                 continue
-            nomeQueue = f"/{apelido}/{'/'.join(consultas[-1].name())}"
+            nomeQueue = "/".join(["", apelido, consultas[-1].name()])
             nome, num_mensagens, consumidores = canal.queue_declare(queue=nomeQueue, durable=True, exclusive=False, auto_delete=False)
             print(f"Instanciada fila {nome} com {num_mensagens} mensagem(s) e {consumidores} consumidor(es)")
             # canal.queue_bind()
@@ -204,7 +211,7 @@ def main(configs, configs_profile):
             c.send_heartbeat()
             if canal is not None:
                 for consulta in consultas:
-                    nomeQueue = f"/{apelido}/{'/'.join(consulta.name())}"
+                    nomeQueue = "/".join(["", apelido, consulta.name()])
                     resultado = 1 if consulta.run() else 0
                     # print(nomeQueue,'=>',"Sucesso" if resultado else "Falha")
                     canal.basic_publish(amqp.Message(str(resultado), content_type='text/plain', application_headers={'status': resultado}), routing_key=nomeQueue)
@@ -366,28 +373,40 @@ def thread_server(configs):
     global exit_event, server_profiles
     print('Iniciando conexão com Broker...')
     try:
-        r = requests.get('http://%s:%d/api/queues/%s' % (configs['amqp']['host'], 15672, ''), auth=(configs['amqp']['userid'], configs['amqp']['password']))
-        if r.status_code == 200:
-            if r.headers['content-type'] == 'application/json':
-                # print(r.text)
-                queues = r.json()
-            else:
-                print(f"[Servidor][Erro][Broker][WEB]: Conexão mal sucedida. Tipo de conteúdo: {r.headers['content-type']}")
-                return
-        else:
-            print(f"[Servidor][Erro][Broker][WEB]: Conexão mal sucedida. Código de status: {r.status_code}")
-            return
-        
         filas_ativas = []
-        for fila in queues:
-            filas_ativas.append(fila['name'])
-            pendentes = fila['messages']
-            if pendentes > 0:
-                if 'idle_since' in fila:
-                    last_changes = datetime.fromisoformat(fila['idle_since']).astimezone(timezone(timedelta(hours=-3)))
-                    print(f"[{fila['name']}] {fila['messages']} mensagens em fila, desde {last_changes}")
-                else:
-                    print(f"[{fila['name']}] {fila['messages']} mensagens em fila")
+        
+        # Ignorar esta busca.
+        
+        # r = requests.get('http://%s:%d/api/queues/%s' % (configs['amqp']['host'], 15672, ''), auth=(configs['amqp']['userid'], configs['amqp']['password']))
+        # if r.status_code == 200:
+        #     if r.headers['content-type'] == 'application/json':
+        #         # print(r.text)
+        #         queues = r.json()
+        #     else:
+        #         print(f"[Servidor][Erro][Broker][WEB]: Conexão mal sucedida. Tipo de conteúdo: {r.headers['content-type']}")
+        #         return
+        # else:
+        #     print(f"[Servidor][Erro][Broker][WEB]: Conexão mal sucedida. Código de status: {r.status_code}")
+        #     return
+        
+        # for fila in queues:
+        #     filas_ativas.append(fila['name'])
+        #     pendentes = fila['messages']
+        #     if pendentes > 0:
+        #         if 'idle_since' in fila:
+        #             last_changes = datetime.fromisoformat(fila['idle_since']).astimezone(timezone(timedelta(hours=-3)))
+        #             print(f"[{fila['name']}] {fila['messages']} mensagens em fila, desde {last_changes}")
+        #         else:
+        #             print(f"[{fila['name']}] {fila['messages']} mensagens em fila")
+        
+        # Usar somente a busca abaixo:
+        
+        # Preencher filas_ativas com as que REALMENTE conhecemos:
+        for _alias in server_profiles.keys():
+            for service in server_profiles[_alias]['service']:
+                topic_add = "/".join(["", _alias, service['topic']])
+                if filas_ativas.count(topic_add) == 0:
+                    filas_ativas.append(topic_add)
 
         with amqp.Connection(configs['amqp']['host'], userid=configs['amqp']['userid'], password=configs['amqp']['password']) as c:
             canal = c.channel()
@@ -400,6 +419,7 @@ def thread_server(configs):
                 ch.basic_ack(message.delivery_tag)
             
             for fila in filas_ativas:
+                canal.queue_declare(queue=fila, durable=True, auto_delete=False)
                 canal.basic_consume(queue=fila, callback=on_message)
             
             while not exit_event.is_set():
@@ -408,7 +428,11 @@ def thread_server(configs):
                 except TimeoutError as e:
                     pass
     except amqp.exceptions.AMQPError as e:
-        print(f"[Servidor][Erro][Broker][Conexão]: {e}")
+        print(f"[Servidor][Erro][Broker][Conexão]: {e}\nFinalizando...")
+        exit_event.set()
+    except Exception as e:
+        print(f"[Servidor][Erro][Broker][Conexão]: {e}\nFinalizando...")
+        exit_event.set()
 
 
 if __name__ == "__main__":
@@ -424,8 +448,8 @@ if __name__ == "__main__":
         signal.signal(signal.SIGINT, signal_handler)
         
         amqp_server_host = configs['amqp']['host']
-        amqp_server = ConsultaTCP(amqp_server_host, 5672)
-        amqp_server_ping = ConsultaICMP(amqp_server_host, tentativas=1)
+        amqp_server = ConsultaTCP('',amqp_server_host, 5672)
+        amqp_server_ping = ConsultaICMP('',amqp_server_host, tentativas=1)
         while not exit_event.is_set():
             if not amqp_server.run():
                 print(f"[Servidor][ERRO] Broker não está acessível no host {amqp_server_host}.")

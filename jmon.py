@@ -56,7 +56,7 @@ class ClientsServerMonitor:
         pass
     
     def addEvent(self, alias:str, topic:str, headers:dict, profile_service: list, timestamp:int):
-        print( (alias, topic, headers, timestamp, profile_service) )
+        # print( (alias, topic, headers, timestamp, profile_service) )
         if not (alias in self.aliases.keys()):
             self.aliases[alias] = {}
         if not (topic in self.aliases[alias].keys()):
@@ -67,20 +67,21 @@ class ClientsServerMonitor:
         elif topic in self.aliases[alias].keys():
             if self.aliases[alias][topic]['value'] == headers['return']:
                 self.aliases[alias][topic]['count']+=1
-        # if self.aliases[alias][topic]['count'] == 
                 
-            
-        # HTTP
-        if ('http' in profile_service) and ('port' in profile_service):
-            for trigger in profile_service['trigger']:
-                if str(trigger).endswith('down'):
-                    pass
-                    
-        # Ping
-        # elif ('ping' in profile_service):
-        #     consultas.append(ConsultaICMP(topic, servico['ping']))
+        _NOTIFY = False
+        # HTTP or Ping or service-port
+        if (('http' in profile_service) and ('port' in profile_service)) or ('ping' in profile_service) or (('local' in profile_service) and (profile_service['local'] == 'service-port')):
+            if headers['return'] == 0:
+                if "down" in profile_service['trigger']:
+                    if profile_service['trigger']["down"] == self.aliases[alias][topic]['count']: # Valor de alerta atingido:
+                        _NOTIFY = True
+            elif headers['return'] == 1:
+                if "up" in profile_service['trigger']:
+                    if profile_service['trigger']["up"] == self.aliases[alias][topic]['count']: # Valor de alerta atingido:
+                        _NOTIFY = True
         
-        pass
+        if _NOTIFY:
+            print(F"ALERTA: {alias} -> {topic} ESTÁ {'UP' if headers['return'] else 'DOWN'}")
     
 class Consulta:
     ''' Estrutura básica de uma Consulta. '''
@@ -226,15 +227,16 @@ def main(configs, configs_profile):
             # Ping
             elif ('ping' in servico):
                 consultas.append(ConsultaICMP(topic, servico['ping']))
-            # Netstat
-            elif ('local' in servico) and ('tcp' in servico):
-                consultas.append(ConsultaNetstat(topic, 'tcp', int(servico['tcp'])))
-            elif ('local' in servico) and ('tcp6' in servico):
-                consultas.append(ConsultaNetstat(topic, 'tcp6', int(servico['tcp6'])))
-            elif ('local' in servico) and ('udp' in servico):
-                consultas.append(ConsultaNetstat(topic, 'udp', int(servico['udp'])))
-            elif ('local' in servico) and ('udp6' in servico):
-                consultas.append(ConsultaNetstat(topic, 'udp6', int(servico['udp6'])))
+            # Netstat - service
+            elif ('local' in servico) and (servico['local'] == 'service-port'):
+                if 'tcp' in servico:
+                    consultas.append(ConsultaNetstat(topic, 'tcp', int(servico['tcp'])))
+                elif 'tcp6' in servico:
+                    consultas.append(ConsultaNetstat(topic, 'tcp6', int(servico['tcp6'])))
+                elif 'udp' in servico:
+                    consultas.append(ConsultaNetstat(topic, 'udp', int(servico['udp'])))
+                elif 'udp6' in servico:
+                    consultas.append(ConsultaNetstat(topic, 'udp6', int(servico['udp6'])))
             else:
                 continue
             nomeQueue = "/".join(["", apelido, consultas[-1].name()])

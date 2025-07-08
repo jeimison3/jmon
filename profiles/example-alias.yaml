@@ -5,14 +5,14 @@ client:
 service:
 
   # Local service, verified with: netstat -tuplen
-  - local:
+  - local: service-port
     tcp: 80
     topic: "service-80-tcpv4"
     trigger: 
       down: 3
       up: 3
   
-  - local:
+  - local: service-port
     tcp6: 80
     topic: "service-80-tcpv6"
     trigger: 
@@ -20,7 +20,7 @@ service:
       up: 3
   
   # Watch for updates and send lines
-  - local:
+  - local: file-content
     content: /var/log/apache.log
     topic: "apache-errors"
     trigger: ['/ERROR/'] # REGEX

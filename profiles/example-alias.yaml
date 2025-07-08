@@ -8,12 +8,16 @@ service:
   - local:
     tcp: 80
     topic: "service-80-tcpv4"
-    trigger: [3-down, 3-up]
+    trigger: 
+      down: 3
+      up: 3
   
   - local:
     tcp6: 80
     topic: "service-80-tcpv6"
-    trigger: [3-down, 3-up]
+    trigger: 
+      down: 3
+      up: 3
   
   # Watch for updates and send lines
   - local:
@@ -24,17 +28,25 @@ service:
   # Remote services
   - ping: 1.1.1.1
     topic: "ping-dns"
-    trigger: [3-down, 3-up]
+    trigger: 
+      down: 3
+      up: 3
   
   - ping: 2606:4700:4700::1111
     topic: "ping-dnsv6"
-    trigger: [3-down, 3-up]
+    trigger: 
+      down: 3
+      up: 3
   
   - http: google.com
     port: 80
     topic: "http-google"
-    trigger: [3-down, 3-up]
+    trigger: 
+      down: 3
+      up: 3
   
   - mysql: 127.0.0.1:3306
     topic: "mysql"
-    trigger: [3-down, 3-up]
+    trigger: 
+      down: 1
+      up: 1

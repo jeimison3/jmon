@@ -50,6 +50,38 @@ def resolveIP(host):
         pass
     return ipv4, ipv6
 
+class ClientsServerMonitor:
+    def __init__(self):
+        self.aliases = {}
+        pass
+    
+    def addEvent(self, alias:str, topic:str, headers:dict, profile_service: list, timestamp:int):
+        print( (alias, topic, headers, timestamp, profile_service) )
+        if not (alias in self.aliases.keys()):
+            self.aliases[alias] = {}
+        if not (topic in self.aliases[alias].keys()):
+            self.aliases[alias][topic] = {
+                'value': headers['return'],
+                'count': 1
+            }
+        elif topic in self.aliases[alias].keys():
+            if self.aliases[alias][topic]['value'] == headers['return']:
+                self.aliases[alias][topic]['count']+=1
+        # if self.aliases[alias][topic]['count'] == 
+                
+            
+        # HTTP
+        if ('http' in profile_service) and ('port' in profile_service):
+            for trigger in profile_service['trigger']:
+                if str(trigger).endswith('down'):
+                    pass
+                    
+        # Ping
+        # elif ('ping' in profile_service):
+        #     consultas.append(ConsultaICMP(topic, servico['ping']))
+        
+        pass
+    
 class Consulta:
     ''' Estrutura básica de uma Consulta. '''
     topic : str = ""
@@ -382,6 +414,7 @@ def thread_server(configs):
     ## Thread consumidor AMQP/MQTT
     '''
     global exit_event, server_profiles
+    events_listener = ClientsServerMonitor()
     print('Iniciando conexão com Broker...')
     try:
         filas_ativas = []
@@ -426,11 +459,16 @@ def thread_server(configs):
                 try:
                     ch = message.channel
                     key = message.delivery_info['routing_key']
+                    [_, _alias, _topic] = key.split("/")
                     _return = message.properties['application_headers']['return']
                     _body = message.body
                     _timestamp = message.properties['timestamp']
                     _offset_stamp = int(get_current_timestamp()*1000) - _timestamp
                     print(f"[{_offset_stamp} ms] {key} => {_return}")
+                    for service in server_profiles[_alias]['service']:
+                        if _topic == service['topic']:
+                            events_listener.addEvent(alias=_alias, topic=_topic, headers=message.properties['application_headers'], profile_service=service, timestamp=_timestamp)
+                            break
                     ch.basic_ack(message.delivery_tag)
                 except Exception as e:
                     pass

@@ -1,51 +1,53 @@
-# JMON - Sistema de Monitoramento Avançado
+# JMON - Advanced Monitoring System
 
-Sistema de monitoramento distribuído usando AMQP/RabbitMQ para comunicação entre clientes e servidor, com suporte a alertas por e-mail e monitoramento de arquivos de log.
+> **🌐 Language**: [Português (PT-BR)](README.pt.md) | **English**
 
-## 🚀 Funcionalidades
+Distributed monitoring system using AMQP/RabbitMQ for client-server communication, with email alerts and log file monitoring support.
 
-### Monitoramento de Serviços
-- ✅ **Conectividade (ICMP/Ping)** - Monitora disponibilidade de hosts
-- ✅ **Portas TCP/UDP** - Verifica se serviços estão escutando
-- ✅ **Serviços HTTP** - Testa conectividade HTTP/HTTPS
-- ✅ **Serviços Locais** - Monitora via netstat
+## 🚀 Features
 
-### Monitoramento de Arquivos
-- ✅ **Logs em Tempo Real** - Monitora arquivos de log continuamente
-- ✅ **Padrões Regex** - Aplica múltiplos padrões para detectar eventos
-- ✅ **Alertas Inteligentes** - Detecta erros, exceções e eventos críticos
+### Service Monitoring
+- ✅ **Connectivity (ICMP/Ping)** - Monitor host availability
+- ✅ **TCP/UDP Ports** - Check if services are listening
+- ✅ **HTTP Services** - Test HTTP/HTTPS connectivity
+- ✅ **Local Services** - Monitor via netstat
 
-### Sistema de Alertas
-- ✅ **Alertas Configuráveis** - Triggers personalizáveis (up/down/regex)
-- ✅ **Notificações por E-mail** - Envio automático para sys-admin
-- ✅ **Múltiplos Provedores SMTP** - Gmail, Outlook, Yahoo, etc.
+### File Monitoring
+- ✅ **Real-time Logs** - Continuously monitor log files
+- ✅ **Regex Patterns** - Apply multiple patterns to detect events
+- ✅ **Smart Alerts** - Detect errors, exceptions and critical events
 
-### Comunicação e Arquitetura
-- ✅ **AMQP/RabbitMQ** - Comunicação robusta e confiável
-- ✅ **Distribuído** - Múltiplos clientes, servidor centralizado
-- ✅ **IPv4/IPv6** - Suporte completo para ambos protocolos
+### Alert System
+- ✅ **Configurable Alerts** - Customizable triggers (up/down/regex)
+- ✅ **Email Notifications** - Automatic sending to sys-admin
+- ✅ **Multiple SMTP Providers** - Gmail, Outlook, Yahoo, etc.
 
-## 📁 Estrutura do Projeto
+### Communication & Architecture
+- ✅ **AMQP/RabbitMQ** - Robust and reliable communication
+- ✅ **Distributed** - Multiple clients, centralized server
+- ✅ **IPv4/IPv6** - Complete support for both protocols
+
+## 📁 Project Structure
 
 ```
 jmon/
-├── jmon.py                     # Script principal (cliente e servidor)
-├── env.server.yaml             # [Template] Configuração do servidor
-├── env.client.yaml             # [Template] Configuração do cliente
-├── profiles/                   # Perfis de monitoramento por cliente
-│   └── example-alias.yaml      # Exemplo de configuração
-├── requirements.txt            # Dependências Python
-├── README.md                   # Este arquivo
+├── jmon.py                     # Main script (client and server)
+├── env.server.yaml             # [Template] Server configuration
+├── env.client.yaml             # [Template] Client configuration
+├── profiles/                   # Monitoring profiles per client
+│   └── example-alias.yaml      # Configuration example
+├── requirements.txt            # Python dependencies
+├── README.md                   # This file
 ```
 
-## 🛠️ Instalação
+## 🛠️ Installation
 
-### 1. Instalar dependências
+### 1. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configurar RabbitMQ
+### 2. Configure RabbitMQ
 ```bash
 # Ubuntu/Debian
 sudo apt-get install rabbitmq-server
@@ -53,34 +55,33 @@ sudo apt-get install rabbitmq-server
 # CentOS/RHEL
 sudo yum install rabbitmq-server
 
-# Iniciar serviço
+# Start service
 sudo systemctl start rabbitmq-server
 sudo systemctl enable rabbitmq-server
 ```
 
-### 3. Configurar arquivos
-#### 3.1 - Servidor:
-- Crie o arquivo `env.ser.yaml` usando o modelo `env.server.yaml` com configurações do servidor e e-mail.
-- Configure profiles em `profiles/` para cada cliente
-#### 3.2 - Cliente:
-- Crie o arquivo `env.yaml` usando o modelo `env.client.yaml` com configurações do cliente.
+### 3. Configure files
+#### 3.1 - Server:
+- Create `env.ser.yaml` file using `env.server.yaml` template with server and email settings
+- Configure profiles in `profiles/` for each client
+#### 3.2 - Client:
+- Create `env.yaml` file using `env.client.yaml` template with client settings
 
+## 🚀 Usage
 
-## 🚀 Uso
-
-### Iniciar Servidor
+### Start Server
 ```bash
 python jmon.py -s
 ```
 
-### Iniciar Cliente
+### Start Client
 ```bash
 python jmon.py
 ```
 
-## ⚙️ Configuração
+## ⚙️ Configuration
 
-### Servidor (env.server.yaml)
+### Server (env.server.yaml)
 ```yaml
 server:
   port: 5656
@@ -93,39 +94,39 @@ amqp:
 email:
   smtp_server: smtp.gmail.com
   smtp_port: 587
-  username: seu_email@gmail.com
-  password: sua_senha_de_app
+  username: your_email@gmail.com
+  password: your_app_password
   use_tls: true
-  sys_admin_email: admin@empresa.com
+  sys_admin_email: admin@company.com
 ```
 
-### Cliente (env.client.yaml)
+### Client (env.client.yaml)
 ```yaml
 server:
-  host: 'servidor.empresa.com'
+  host: 'server.company.com'
   port: 5656
 
-alias: "cliente-01"
+alias: "client-01"
 
 amqp:
   userid: guest
   password: guest
 ```
 
-### Profile de Monitoramento (profiles/cliente-01.yaml)
+### Monitoring Profile (profiles/client-01.yaml)
 ```yaml
 client:
   host: 192.168.1.100
 
 service:
-  # Monitoramento de conectividade
+  # Connectivity monitoring
   - ping: 8.8.8.8
     topic: "ping-google"
     trigger: 
       down: 3
       up: 3
 
-  # Monitoramento de porta
+  # Port monitoring
   - local: service-port
     tcp: 80
     topic: "web-server"
@@ -133,7 +134,7 @@ service:
       down: 2
       up: 2
 
-  # Monitoramento de arquivo de log
+  # Log file monitoring
   - local: file-content
     content: /var/log/apache2/error.log
     topic: "apache-errors"
@@ -143,25 +144,25 @@ service:
       - "500 Internal Server Error"
 ```
 
-## 📊 Tipos de Monitoramento Suportados
+## 📊 Supported Monitoring Types
 
-| Tipo | Configuração | Descrição |
+| Type | Configuration | Description |
 |------|-------------|-----------|
-| **ICMP Ping** | `ping: hostname` | Testa conectividade via ping |
-| **TCP Port** | `http: host` + `port: 80` | Testa conexão TCP |
-| **Local Service** | `local: service-port` + `tcp: 80` | Verifica serviço local via netstat |
-| **File Content** | `local: file-content` + `content: /path/file.log` | Monitora arquivo com regex |
+| **ICMP Ping** | `ping: hostname` | Test connectivity via ping |
+| **TCP Port** | `http: host` + `port: 80` | Test TCP connection |
+| **Local Service** | `local: service-port` + `tcp: 80` | Check local service via netstat |
+| **File Content** | `local: file-content` + `content: /path/file.log` | Monitor file with regex |
 
-## 🔔 Tipos de Alertas
+## 🔔 Alert Types
 
-### Alertas de Status (UP/DOWN)
+### Status Alerts (UP/DOWN)
 ```yaml
 trigger:
-  down: 3  # Alerta após 3 falhas consecutivas
-  up: 2    # Alerta após 2 sucessos consecutivos
+  down: 3  # Alert after 3 consecutive failures
+  up: 2    # Alert after 2 consecutive successes
 ```
 
-### Alertas de Arquivo (Regex)
+### File Alerts (Regex)
 ```yaml
 trigger:
   - "ERROR"
@@ -170,51 +171,51 @@ trigger:
   - "Exception"
 ```
 
-## 📈 Logs e Monitoramento
+## 📈 Logs and Monitoring
 
-### Logs do Servidor
+### Server Logs
 ```
-[EMAIL] Notificador configurado para enviar alertas para: admin@empresa.com
-[FILE-MONITOR] Match encontrado em /var/log/app.log: ERROR: Database connection failed
-ALERTA DE ARQUIVO: cliente-01 -> app-errors - Padrão detectado
-[EMAIL] Alerta de arquivo enviado para admin@empresa.com
+[EMAIL] Notifier configured to send alerts to: admin@company.com
+[FILE-MONITOR] Match found in /var/log/app.log: ERROR: Database connection failed
+FILE ALERT: client-01 -> app-errors - Pattern detected
+[EMAIL] File alert sent to admin@company.com
 ```
 
-### Logs do Cliente
+### Client Logs
 ```
-Instanciada fila /cliente-01/ping-google com 0 mensagem(s) e 0 consumidor(es)
-Instanciada fila /cliente-01/app-errors com 0 mensagem(s) e 0 consumidor(es)
+Queue instantiated /client-01/ping-google with 0 message(s) and 0 consumer(s)
+Queue instantiated /client-01/app-errors with 0 message(s) and 0 consumer(s)
 .....
 ```
 
 ## 🔧 Troubleshooting
 
-### Problemas Comuns
+### Common Issues
 
-1. **Conexão AMQP falha**
-   - Verifique se RabbitMQ está rodando
-   - Confirme credenciais em `env.ser.yaml`
+1. **AMQP connection fails**
+   - Check if RabbitMQ is running
+   - Confirm credentials in `env.ser.yaml`
 
-2. **E-mails não enviados**
-   - Verifique configurações SMTP
-   - Use senhas de aplicativo para Gmail
+2. **Emails not sent**
+   - Check SMTP settings
+   - Use app passwords for Gmail
 
-3. **Arquivo não monitorado**
-   - Verifique permissões de leitura
-   - Confirme caminho do arquivo
+3. **File not monitored**
+   - Check read permissions
+   - Confirm file path
 
-4. **Regex não funciona**
-   - Teste regex em validador online
-   - Escape caracteres especiais com `\\`
+4. **Regex not working**
+   - Test regex in online validator
+   - Escape special characters with `\\`
 
-## 🤝 Contribuição
+## 🤝 Contributing
 
-1. Fork o projeto
-2. Crie uma branch para sua feature
-3. Commit suas mudanças
-4. Push para a branch
-5. Abra um Pull Request
+1. Fork the project
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Open a Pull Request
 
-## 📄 Licença
+## 📄 License
 
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para detalhes.
+This project is under the MIT license. See the [LICENSE](LICENSE) file for details.

@@ -21,9 +21,14 @@ service:
   
   # Watch for updates and send lines
   - local: file-content
-    content: /var/log/apache.log
+    content: /var/log/apache2/error.log
     topic: "apache-errors"
-    trigger: ['/ERROR/'] # REGEX
+    trigger: 
+      - "\\[error\\]"
+      - "\\[crit\\]" 
+      - "\\[alert\\]"
+      - "\\[emerg\\]"
+      - "500 Internal Server Error"
 
   # Remote services
   - ping: 1.1.1.1

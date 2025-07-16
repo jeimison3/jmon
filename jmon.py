@@ -18,6 +18,7 @@ from datetime import datetime, timezone, timedelta
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import re
 
 exit_event = Event()
 
@@ -61,7 +62,7 @@ class EmailNotifier:
         self.password = password
         self.use_tls = use_tls
     
-    def send_alert_email(self, to_email: str, alias: str, topic: str, status: str, timestamp: str = None):
+    def send_alert_email(self, to_email: str, alias: str, topic: str, status: str, timestamp: str = None, matched_content: str = None):
         """
         Envia um e-mail de alerta para o sys-adm
         """
@@ -70,13 +71,36 @@ class EmailNotifier:
             msg = MIMEMultipart()
             msg['From'] = self.username
             msg['To'] = to_email
-            msg['Subject'] = f"[JMON ALERT] {alias} - {topic} está {status}"
+            
+            if matched_content:
+                msg['Subject'] = f"[JMON FILE ALERT] {alias} - {topic} - Padrão detectado"
+            else:
+                msg['Subject'] = f"[JMON ALERT] {alias} - {topic} está {status}"
             
             # Corpo do e-mail
             if timestamp is None:
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            body = f"""
+            if matched_content:
+                body = f"""
+ALERTA DE ARQUIVO DO SISTEMA DE MONITORAMENTO JMON
+
+Detalhes do Alerta:
+- Alias: {alias}
+- Arquivo/Tópico: {topic}
+- Timestamp: {timestamp}
+
+Conteúdo detectado:
+{matched_content}
+
+Este é um alerta automático gerado pelo sistema de monitoramento de arquivos.
+Por favor, verifique o arquivo mencionado para mais detalhes.
+
+---
+Sistema JMON
+                """
+            else:
+                body = f"""
 ALERTA DO SISTEMA DE MONITORAMENTO JMON
 
 Detalhes do Alerta:
@@ -90,7 +114,7 @@ Por favor, verifique o status do serviço mencionado.
 
 ---
 Sistema JMON
-            """
+                """
             
             msg.attach(MIMEText(body, 'plain'))
             
@@ -103,7 +127,10 @@ Sistema JMON
             server.sendmail(self.username, to_email, text)
             server.quit()
             
-            print(f"[EMAIL] Alerta enviado para {to_email}: {alias} -> {topic} está {status}")
+            if matched_content:
+                print(f"[EMAIL] Alerta de arquivo enviado para {to_email}: {alias} -> {topic}")
+            else:
+                print(f"[EMAIL] Alerta enviado para {to_email}: {alias} -> {topic} está {status}")
             return True
             
         except Exception as e:
@@ -130,6 +157,8 @@ class ClientsServerMonitor:
                 self.aliases[alias][topic]['count']+=1
                 
         _NOTIFY = False
+        _FILE_ALERT = False
+        
         # HTTP or Ping or service-port
         if (('http' in profile_service) and ('port' in profile_service)) or ('ping' in profile_service) or (('local' in profile_service) and (profile_service['local'] == 'service-port')):
             if headers['return'] == 0:
@@ -140,6 +169,11 @@ class ClientsServerMonitor:
                 if "up" in profile_service['trigger']:
                     if profile_service['trigger']["up"] == self.aliases[alias][topic]['count']: # Valor de alerta atingido:
                         _NOTIFY = True
+        
+        # File content monitoring
+        elif ('local' in profile_service) and (profile_service['local'] == 'file-content'):
+            if headers['return'] == 1:  # Match encontrado
+                _FILE_ALERT = True
         
         if _NOTIFY:
             status = 'UP' if headers['return'] else 'DOWN'
@@ -158,6 +192,26 @@ class ClientsServerMonitor:
                     )
                 except Exception as e:
                     print(f"[EMAIL ERROR] Erro ao processar envio de e-mail para alerta {alias}->{topic}: {e}")
+        
+        if _FILE_ALERT:
+            print(F"ALERTA DE ARQUIVO: {alias} -> {topic} - Padrão detectado")
+            
+            # Enviar e-mail se o notificador estiver configurado
+            if self.email_notifier and self.sys_admin_email:
+                try:
+                    timestamp_str = datetime.fromtimestamp(timestamp/1000).strftime("%Y-%m-%d %H:%M:%S")
+                    # Obter conteúdo das linhas que fizeram match (se disponível nos headers)
+                    matched_content = headers.get('matched_content', 'Conteúdo não disponível')
+                    self.email_notifier.send_alert_email(
+                        to_email=self.sys_admin_email,
+                        alias=alias,
+                        topic=topic,
+                        status="FILE_MATCH",
+                        timestamp=timestamp_str,
+                        matched_content=matched_content
+                    )
+                except Exception as e:
+                    print(f"[EMAIL ERROR] Erro ao processar envio de e-mail para alerta de arquivo {alias}->{topic}: {e}")
     
 class Consulta:
     ''' Estrutura básica de uma Consulta. '''
@@ -283,6 +337,159 @@ class ConsultaNetstat(Consulta):
             return False
         return False
 
+class ConsultaFileContent(Consulta):
+    def __init__(self, topic: str, file_path: str, regex_patterns: list, max_chunk_size: int = 1024*1024):
+        self.topic = topic
+        self.file_path = file_path
+        self.regex_patterns = regex_patterns
+        self.last_position = 0
+        self.matched_lines = []
+        self.max_chunk_size = max_chunk_size  # 1MB por chunk por padrão
+        self.partial_line = ""  # Para linhas que ficam cortadas entre chunks
+        
+        # Inicializar posição no final do arquivo se ele existir
+        try:
+            with open(self.file_path, 'rb') as f:  # Usar modo binário para melhor performance
+                f.seek(0, 2)  # Ir para o final do arquivo
+                self.last_position = f.tell()
+            print(f"[FILE-MONITOR] Inicializado monitoramento de {self.file_path} (posição: {self.last_position})")
+        except FileNotFoundError:
+            print(f"[FILE-MONITOR] Arquivo não encontrado: {self.file_path}")
+            self.last_position = 0
+        except Exception as e:
+            print(f"[FILE-MONITOR] Erro ao inicializar monitoramento do arquivo {self.file_path}: {e}")
+            self.last_position = 0
+
+    def name(self):
+        return self.topic
+    
+    def _process_chunk(self, chunk_data: str, matches_found: list):
+        """
+        Processa um chunk de dados em busca de matches
+        """
+        lines = chunk_data.split('\n')
+        
+        # A primeira linha pode estar incompleta (continuação da anterior)
+        if self.partial_line:
+            lines[0] = self.partial_line + lines[0]
+            self.partial_line = ""
+        
+        # A última linha pode estar incompleta (será completada no próximo chunk)
+        if not chunk_data.endswith('\n') and len(lines) > 1:
+            self.partial_line = lines[-1]
+            lines = lines[:-1]
+        
+        # Processar cada linha completa
+        for line in lines:
+            line = line.strip()
+            if line:  # Ignorar linhas vazias
+                for pattern in self.regex_patterns:
+                    try:
+                        if re.search(pattern, line, re.IGNORECASE):
+                            matches_found.append({
+                                'line': line[:500],  # Limitar tamanho da linha armazenada
+                                'pattern': pattern,
+                                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            })
+                            print(f"[FILE-MONITOR] Match encontrado em {self.file_path}: {line[:100]}...")
+                            break  # Parar no primeiro match para evitar duplicatas
+                    except re.error as e:
+                        print(f"[FILE-MONITOR] Erro no regex '{pattern}': {e}")
+    
+    def run(self):
+        """
+        Monitora o arquivo em busca de novas linhas que correspondam aos padrões regex
+        Otimizado para arquivos grandes (até 5GB+)
+        """
+        try:
+            # Verificar se o arquivo existe
+            if not os.path.exists(self.file_path):
+                # Reset da posição se arquivo foi removido
+                self.last_position = 0
+                self.partial_line = ""
+                return False
+            
+            # Verificar tamanho atual do arquivo
+            current_size = os.path.getsize(self.file_path)
+            
+            # Se arquivo foi truncado/rotacionado, reiniciar do início
+            if current_size < self.last_position:
+                print(f"[FILE-MONITOR] Arquivo {self.file_path} foi rotacionado/truncado. Reiniciando monitoramento.")
+                self.last_position = 0
+                self.partial_line = ""
+            
+            # Se não há dados novos, retornar
+            if current_size == self.last_position:
+                return False
+            
+            matches_found = []
+            
+            # Abrir arquivo em modo binário para melhor performance
+            with open(self.file_path, 'rb') as f:
+                f.seek(self.last_position)
+                
+                # Processar arquivo em chunks para não sobrecarregar memória
+                while True:
+                    chunk = f.read(self.max_chunk_size)
+                    if not chunk:
+                        break
+                    
+                    try:
+                        # Decodificar chunk com tratamento de erros
+                        chunk_str = chunk.decode('utf-8', errors='ignore')
+                        self._process_chunk(chunk_str, matches_found)
+                        
+                    except UnicodeDecodeError:
+                        # Fallback para encoding latin-1 se UTF-8 falhar
+                        try:
+                            chunk_str = chunk.decode('latin-1', errors='ignore')
+                            self._process_chunk(chunk_str, matches_found)
+                        except Exception as e:
+                            print(f"[FILE-MONITOR] Erro de encoding no arquivo {self.file_path}: {e}")
+                            continue
+                
+                # Atualizar posição atual
+                self.last_position = f.tell()
+            
+            # Armazenar matches encontrados
+            if matches_found:
+                self.matched_lines.extend(matches_found)
+                # Manter apenas os últimos 100 matches para evitar uso excessivo de memória
+                if len(self.matched_lines) > 100:
+                    self.matched_lines = self.matched_lines[-100:]
+                
+                print(f"[FILE-MONITOR] {len(matches_found)} match(es) encontrado(s) em {self.file_path}")
+                return True
+            
+            return False
+            
+        except MemoryError:
+            print(f"[FILE-MONITOR] ERRO: Memória insuficiente para processar {self.file_path}. Considere reduzir max_chunk_size.")
+            return False
+        except IOError as e:
+            print(f"[FILE-MONITOR] Erro de I/O ao monitorar arquivo {self.file_path}: {e}")
+            return False
+        except Exception as e:
+            print(f"[FILE-MONITOR] Erro inesperado ao monitorar arquivo {self.file_path}: {e}")
+            return False
+    
+    def get_recent_matches(self, count=5):
+        """
+        Retorna os matches mais recentes
+        """
+        return self.matched_lines[-count:] if self.matched_lines else []
+    
+    def get_stats(self):
+        """
+        Retorna estatísticas do monitoramento
+        """
+        return {
+            'file_path': self.file_path,
+            'last_position': self.last_position,
+            'total_matches': len(self.matched_lines),
+            'chunk_size': self.max_chunk_size
+        }
+
 
 def main(configs, configs_profile):
     global exit_event
@@ -313,6 +520,12 @@ def main(configs, configs_profile):
                     consultas.append(ConsultaNetstat(topic, 'udp', int(servico['udp'])))
                 elif 'udp6' in servico:
                     consultas.append(ConsultaNetstat(topic, 'udp6', int(servico['udp6'])))
+            # File content monitoring
+            elif ('local' in servico) and (servico['local'] == 'file-content'):
+                if 'content' in servico and 'trigger' in servico:
+                    file_path = servico['content']
+                    regex_patterns = servico['trigger']
+                    consultas.append(ConsultaFileContent(topic, file_path, regex_patterns))
             else:
                 continue
             nomeQueue = "/".join(["", apelido, consultas[-1].name()])
@@ -328,10 +541,24 @@ def main(configs, configs_profile):
                 for consulta in consultas:
                     nomeQueue = "/".join(["", apelido, consulta.name()])
                     resultado = 1 if consulta.run() else 0
+                    
+                    # Preparar headers da mensagem
+                    headers = {'return': resultado}
+                    
+                    # Se for uma consulta de arquivo e houve match, incluir conteúdo
+                    if isinstance(consulta, ConsultaFileContent) and resultado == 1:
+                        recent_matches = consulta.get_recent_matches(3)  # Últimos 3 matches
+                        if recent_matches:
+                            matched_content = "\n".join([
+                                f"[{match['timestamp']}] {match['line'][:200]}..." if len(match['line']) > 200 else f"[{match['timestamp']}] {match['line']}"
+                                for match in recent_matches
+                            ])
+                            headers['matched_content'] = matched_content
+                    
                     # print(nomeQueue,'=>',"Sucesso" if resultado else "Falha")
                     canal.basic_publish(amqp.Message(
                         str(resultado),
-                        application_headers={'return': resultado},
+                        application_headers=headers,
                         timestamp=int((remote_offset_time+get_current_timestamp())*1000),
                     ), routing_key=nomeQueue)
             print('.',end='', flush=True)

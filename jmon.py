@@ -15,6 +15,9 @@ import time
 import yaml.serializer
 import requests
 from datetime import datetime, timezone, timedelta
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 exit_event = Event()
 
@@ -50,10 +53,68 @@ def resolveIP(host):
         pass
     return ipv4, ipv6
 
+class EmailNotifier:
+    def __init__(self, smtp_server: str, smtp_port: int, username: str, password: str, use_tls: bool = True):
+        self.smtp_server = smtp_server
+        self.smtp_port = smtp_port
+        self.username = username
+        self.password = password
+        self.use_tls = use_tls
+    
+    def send_alert_email(self, to_email: str, alias: str, topic: str, status: str, timestamp: str = None):
+        """
+        Envia um e-mail de alerta para o sys-adm
+        """
+        try:
+            # Criar mensagem
+            msg = MIMEMultipart()
+            msg['From'] = self.username
+            msg['To'] = to_email
+            msg['Subject'] = f"[JMON ALERT] {alias} - {topic} está {status}"
+            
+            # Corpo do e-mail
+            if timestamp is None:
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            body = f"""
+ALERTA DO SISTEMA DE MONITORAMENTO JMON
+
+Detalhes do Alerta:
+- Alias: {alias}
+- Serviço: {topic}
+- Status: {status}
+- Timestamp: {timestamp}
+
+Este é um alerta automático gerado pelo sistema de monitoramento.
+Por favor, verifique o status do serviço mencionado.
+
+---
+Sistema JMON
+            """
+            
+            msg.attach(MIMEText(body, 'plain'))
+            
+            # Conectar ao servidor SMTP e enviar
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            if self.use_tls:
+                server.starttls()
+            server.login(self.username, self.password)
+            text = msg.as_string()
+            server.sendmail(self.username, to_email, text)
+            server.quit()
+            
+            print(f"[EMAIL] Alerta enviado para {to_email}: {alias} -> {topic} está {status}")
+            return True
+            
+        except Exception as e:
+            print(f"[EMAIL ERROR] Falha ao enviar e-mail: {e}")
+            return False
+
 class ClientsServerMonitor:
-    def __init__(self):
+    def __init__(self, email_notifier: EmailNotifier = None, sys_admin_email: str = None):
         self.aliases = {}
-        pass
+        self.email_notifier = email_notifier
+        self.sys_admin_email = sys_admin_email
     
     def addEvent(self, alias:str, topic:str, headers:dict, profile_service: list, timestamp:int):
         # print( (alias, topic, headers, timestamp, profile_service) )
@@ -81,7 +142,22 @@ class ClientsServerMonitor:
                         _NOTIFY = True
         
         if _NOTIFY:
-            print(F"ALERTA: {alias} -> {topic} ESTÁ {'UP' if headers['return'] else 'DOWN'}")
+            status = 'UP' if headers['return'] else 'DOWN'
+            print(F"ALERTA: {alias} -> {topic} ESTÁ {status}")
+            
+            # Enviar e-mail se o notificador estiver configurado
+            if self.email_notifier and self.sys_admin_email:
+                try:
+                    timestamp_str = datetime.fromtimestamp(timestamp/1000).strftime("%Y-%m-%d %H:%M:%S")
+                    self.email_notifier.send_alert_email(
+                        to_email=self.sys_admin_email,
+                        alias=alias,
+                        topic=topic,
+                        status=status,
+                        timestamp=timestamp_str
+                    )
+                except Exception as e:
+                    print(f"[EMAIL ERROR] Erro ao processar envio de e-mail para alerta {alias}->{topic}: {e}")
     
 class Consulta:
     ''' Estrutura básica de uma Consulta. '''
@@ -416,7 +492,31 @@ def thread_server(configs):
     ## Thread consumidor AMQP/MQTT
     '''
     global exit_event, server_profiles
-    events_listener = ClientsServerMonitor()
+    
+    # Configurar notificador de e-mail se as configurações estiverem disponíveis
+    email_notifier = None
+    sys_admin_email = None
+    
+    if 'email' in configs:
+        try:
+            email_config = configs['email']
+            email_notifier = EmailNotifier(
+                smtp_server=email_config['smtp_server'],
+                smtp_port=email_config['smtp_port'],
+                username=email_config['username'],
+                password=email_config['password'],
+                use_tls=email_config.get('use_tls', True)
+            )
+            sys_admin_email = email_config['sys_admin_email']
+            print(f"[EMAIL] Notificador configurado para enviar alertas para: {sys_admin_email}")
+        except Exception as e:
+            print(f"[EMAIL ERROR] Erro ao configurar notificador de e-mail: {e}")
+            email_notifier = None
+            sys_admin_email = None
+    else:
+        print("[EMAIL] Configurações de e-mail não encontradas. Alertas por e-mail desabilitados.")
+    
+    events_listener = ClientsServerMonitor(email_notifier, sys_admin_email)
     print('Iniciando conexão com Broker...')
     try:
         filas_ativas = []
